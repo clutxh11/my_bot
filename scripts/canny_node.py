@@ -31,15 +31,14 @@ class CannyNode(Node):
 
     def image_callback(self, msg: Image):
         # Decode the received compressed image into a NumPy array
-        # np_arr = np.frombuffer(msg.data, np.uint8)
-        # image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        np_arr = np.frombuffer(msg.data, np.uint8)
+        image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
         # Apply your Canny edge detection algorithm to get the processed edge map
-        #processed_edge_map = self.canny_algorithm(image, 0, 50)
+        processed_edge_map = self.canny_algorithm(image, 0, 50)
 
         # Then, publish the processed edge map
-        # self.publish_edge_map(processed_edge_map)
-        self.publisher.publish(msg)
+        self.publish_edge_map(processed_edge_map)
 
     def Grayscale(self,image):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
