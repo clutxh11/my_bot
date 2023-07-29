@@ -30,15 +30,15 @@ class CannyNode(Node):
         )
 
     def image_callback(self, msg: Image):
-        # Decode the received compressed image into a NumPy array
-        np_arr = np.frombuffer(msg.data, np.uint8)
-        image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        # Convert the ROS Image message to a NumPy array
+        np_arr = np.frombuffer(msg.data, np.uint8).reshape((msg.height, msg.width, -1))
 
         # Apply your Canny edge detection algorithm to get the processed edge map
-        processed_edge_map = self.canny_algorithm(image, 0, 50)
+        processed_edge_map = self.canny_algorithm(np_arr, 0, 50)
 
         # Then, publish the processed edge map
         self.publish_edge_map(processed_edge_map)
+
 
     def Grayscale(self,image):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -138,20 +138,20 @@ class CannyNode(Node):
         # Extract the edge map from the processed_edge_map tuple
         edge_map = processed_edge_map[0]
 
-        # Convert the edge map to CompressedImage format
+        # Convert the edge map to Image format
         # The edge map is a NumPy array, so we need to convert it to an OpenCV matrix
         edge_map_cv = cv2.convertScaleAbs(edge_map)
 
-        # Encode the edge map to JPEG format
-        retval, compressed_image = cv2.imencode('.jpg', edge_map_cv)
-        if not retval:
-            return
-
-        # Create a CompressedImage message and publish it
-        msg = CompressedImage()
+        # Create an Image message and publish it
+        msg = Image()
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.format = 'jpeg'
-        msg.data = compressed_image.tobytes()
+        msg.height = edge_map.shape[0]
+        msg.width = edge_map.shape[1]
+        msg.encoding = "mono8"  # Assuming the edge map is a grayscale image
+        msg.is_bigendian = False
+        msg.step = msg.width
+        msg.data = edge_map_cv.tobytes()
+
         self.publisher.publish(msg)
 
 
