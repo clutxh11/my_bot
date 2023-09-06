@@ -46,6 +46,7 @@ ament_python_install_package(${PROJECT_NAME})
 #Install Python executables
 install(PROGRAMS
   scripts/canny_node.py
+  scripts/cv_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

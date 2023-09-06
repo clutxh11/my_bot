@@ -3,16 +3,17 @@
 import cv2
 import numpy as np
 from rclpy.node import Node
-from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import Image
 
 class CannyNode(Node):
     def __init__(self):
         super().__init__('canny_node')
+        self.get_logger().info("node started")
 
         # Create a subscriber to the existing compressed image topic
         self.subscription = self.create_subscription(
-            CompressedImage,
-            '/camera/image_raw/compressed',
+            Image,
+            "/camera/image_raw",
             self.image_callback,
             10  # QoS profile history depth
         )
@@ -20,31 +21,67 @@ class CannyNode(Node):
 
         # Create a publisher to publish the processed edge map
         self.publisher = self.create_publisher(
-            CompressedImage,
-            '/compressed_canny_edge_map',
-            10  # QoS profile history depth
+            Image,
+            "/canny_edge",
+            10  # QoS profile history depths
         )
 
-    def image_callback(self, msg):
-        # Decode the received compressed image into a NumPy array
-        np_arr = np.frombuffer(msg.data, np.uint8)
-        image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    def image_callback(self, msg: Image):
+        # Convert the ROS Image message to a NumPy array
+        np_arr = np.frombuffer(msg.data, np.uint8).reshape((msg.height, msg.width, -1))
 
         # Apply your Canny edge detection algorithm to get the processed edge map
-        processed_edge_map = self.canny_algorithm(image, 0, 50)
+        processed_edge_map = self.canny_algorithm(np_arr, 0, 50)
 
         # Then, publish the processed edge map
-        # self.publish_edge_map(processed_edge_map)
-        self.publisher.publish(msg)
+        self.publish_edge_map(processed_edge_map)
 
+    
     def Grayscale(self,image):
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        if len(image.shape) == 3:  # Check if color image
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         return image
 
+    
+    def GaussianBlur(self,image, kernel_size=(3, 3), sigma=1.0):
+        if len(image.shape) == 3:  # Color image, convert to grayscale
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    def GaussianBlur(self, image):
-        image = cv2.GaussianBlur(image, (3, 3), 0)
-        return image
+        # Create a Gaussian kernel
+        kernel = np.fromfunction(
+            lambda x, y: (1 / (2 * np.pi * sigma**2))
+            * np.exp(
+                -((x - kernel_size[0] // 2) ** 2 + (y - kernel_size[1] // 2) ** 2)
+                / (2 * sigma**2)
+            ),
+            kernel_size,
+        )
+        kernel /= np.sum(kernel)
+
+        # Get image dimensions
+        height, width = image.shape
+
+        # Initialize the output image
+        blurred_image = np.zeros((height, width))
+
+        # Pad the image with zeros to handle border pixels
+        padded_image = np.pad(
+            image,
+            (
+                (kernel_size[0] // 2, kernel_size[0] // 2),
+                (kernel_size[1] // 2, kernel_size[1] // 2),
+            ),
+            mode="constant",
+        )
+
+        # Convolve the image with the Gaussian kernel
+        for i in range(height):
+            for j in range(width):
+                blurred_image[i, j] = np.sum(
+                    padded_image[i : i + kernel_size[0], j : j + kernel_size[1]] * kernel
+                )
+
+        return blurred_image.astype(np.uint8)
 
 
     def SobelFilter(self, image):
@@ -135,21 +172,64 @@ class CannyNode(Node):
         # Extract the edge map from the processed_edge_map tuple
         edge_map = processed_edge_map[0]
 
-        # Convert the edge map to CompressedImage format
+        # Convert the edge map to Image format
         # The edge map is a NumPy array, so we need to convert it to an OpenCV matrix
         edge_map_cv = cv2.convertScaleAbs(edge_map)
 
-        # Encode the edge map to JPEG format
-        retval, compressed_image = cv2.imencode('.jpg', edge_map_cv)
-        if not retval:
-            return
-
-        # Create a CompressedImage message and publish it
-        msg = CompressedImage()
+        # Create an Image message and publish it
+        msg = Image()
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.format = 'jpeg'
-        msg.data = compressed_image.tobytes()
+        msg.height = edge_map.shape[0]
+        msg.width = edge_map.shape[1]
+        msg.encoding = "mono8"  # Assuming the edge map is a grayscale image
+        msg.is_bigendian = False
+        msg.step = msg.width
+        msg.data = edge_map_cv.tobytes()
+
         self.publisher.publish(msg)
+
+
+class OpenCvCannyNode(Node):
+    def __init__(self):
+        super().__init__('cv_canny_node')
+        self.get_logger().info("Node started")
+
+        # Create a subscriber to the existing image topic
+        self.subscription = self.create_subscription(
+            Image,
+            "/camera/image_raw",  # Replace this topic with your input image topic
+            self.image_callback,
+            10  # QoS profile history depth
+        )
+        self.subscription
+
+        # Create a publisher to publish the processed edge map
+        self.publisher = self.create_publisher(
+            Image,
+            "/cv_canny_edge",
+            10  # QoS profile history depths
+        )
+
+    def image_callback(self, msg: Image):
+        # Convert the ROS Image message to a NumPy array
+        np_arr = np.frombuffer(msg.data, np.uint8).reshape((msg.height, msg.width, -1))
+
+        # Apply Canny edge detection algorithm
+        edge_map = cv2.Canny(np_arr, 100, 200)  # Modify thresholds (100, 200) as needed
+
+        # Convert the edge map to Image format
+        edge_map_msg = Image()
+        edge_map_msg.header = msg.header
+        edge_map_msg.height = edge_map.shape[0]
+        edge_map_msg.width = edge_map.shape[1]
+        edge_map_msg.encoding = "mono8"  # Edge map is a grayscale image
+        edge_map_msg.is_bigendian = False
+        edge_map_msg.step = edge_map_msg.width
+        edge_map_msg.data = edge_map.tobytes()
+
+        # Publish the processed edge map
+        self.publisher.publish(edge_map_msg)
+
 
 
 

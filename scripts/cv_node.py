@@ -7,9 +7,9 @@ from my_bot.module_to_import import CannyNode, OpenCvCannyNode
 def main(args=None):
     rclpy.init(args=args)
 
-    canny_node = CannyNode()
+    cv_canny_node = OpenCvCannyNode()
 
-    rclpy.spin(canny_node)
+    rclpy.spin(cv_canny_node)
 
     rclpy.shutdown()
 
